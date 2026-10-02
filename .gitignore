@@ -2,3 +2,4 @@
 *.bak
 work/
 /.local/
+/docs/
