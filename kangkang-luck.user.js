@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [银河奶牛]康康运气_修复
 // @namespace    http://tampermonkey.net/
-// @version      0.2.4
+// @version      0.2.5
 // @description  更详细的统计数据（建议搭配 MWITools 获得中文物品名）
 // @author       Weierstras@www.milkywayidle.com
 // @license      MIT
@@ -4170,11 +4170,33 @@ Chart.register(TracePlugin);
             const cf = BattleDropAnalyzer.battleCF(dropData);
             let cdf;
             const minLimit = Config.battleDrop.analyzer.minLimit;
-            const dungeonDrop = dropData.bossDrops?.['_dungeon']?.[0];
+            const dungeonDrops = dropData.bossDrops?.['_dungeon'] ?? [];
+            const dungeonDrop = dungeonDrops[0];
             if (!dungeonDrop) {
                 const perWaveLimit = Config.battleDrop.analyzer.perWaveLimit;
                 const limit = Math.max(minLimit, perWaveLimit * (dropData.bossCount + dropData.normalCount));
                 cdf = CharaFunc.getCDF(cf, samples, limit);
+            } else if (dungeonDrops.length > 1) {
+                const epoch = dropData.bossCount;
+                const minIncome = epoch * dungeonDrops.reduce((total, drop) =>
+                    total + (drop.dropRate === 1 ? Math.floor(drop.minCount) * drop.price : 0), 0);
+                const maxIncome = epoch * dungeonDrops.reduce((total, drop) =>
+                    total + (drop.dropRate > 0 ? Math.ceil(drop.maxCount) * drop.price : 0), 0);
+
+                if (minIncome === maxIncome) {
+                    cdf = { limit: Math.max(1, maxIncome), cdf: x => x < maxIncome ? 0 : 1 };
+                } else {
+                    // 给 FFT 留出边界，避免最高奖励刚好落到积分区间端点。
+                    const distribution = CharaFunc.getCDF(cf, samples, maxIncome * 1.05);
+                    cdf = {
+                        limit: distribution.limit,
+                        cdf: x => {
+                            if (x < minIncome) return 0;
+                            if (x >= maxIncome) return 1;
+                            return distribution.cdf(x);
+                        },
+                    };
+                }
             } else {
                 const chestPrice = Market.getFairValueByName(dungeonDrop.name);
                 const epoch = dropData.bossCount;
